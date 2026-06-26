@@ -14,6 +14,9 @@ Functions · Polly · Application Insights**.
 > Learning scaffold, not production. It runs locally and demonstrates the patterns; the
 > "Production hardening" section maps each shortcut to what you'd really do.
 
+> **New here?** Start with the [Getting Started tour](docs/getting-started.md) — a plain-English
+> walkthrough of what this is and how it works. This README is the dense reference.
+
 ---
 
 ## What's implemented
