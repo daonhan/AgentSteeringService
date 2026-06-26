@@ -5,21 +5,20 @@
 [![Azure Functions](https://img.shields.io/badge/Azure%20Functions-v4%20isolated-0062AD?logo=azurefunctions&logoColor=white)](https://learn.microsoft.com/azure/azure-functions/dotnet-isolated-process-guide)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A weekend scaffold that mirrors the **.NET Developer (Back-end Azure Functions) L1–3** job 1:1.
-It is the **control plane** for an AI-agent runtime: start long-running agent loops and
-**steer them in flight** — pause / resume / kill / redirect — exactly the JD's headline feature.
+The **control plane** for an AI-agent runtime: it starts long-running agent loops and
+**steers them in flight** — pause / resume / kill / redirect.
 
-Built with the same stack the JD names: **.NET 8 · Azure Functions (isolated worker) HTTP
-(`HttpRequestData`) · Durable Functions · Polly · Application Insights**.
+Built on **.NET 8 · Azure Functions (isolated worker) HTTP (`HttpRequestData`) · Durable
+Functions · Polly · Application Insights**.
 
 > Learning scaffold, not production. It runs locally and demonstrates the patterns; the
 > "Production hardening" section maps each shortcut to what you'd really do.
 
 ---
 
-## How it maps to the job description
+## What's implemented
 
-| JD phrase | Where it lives in this repo |
+| Capability | Where it lives in this repo |
 |---|---|
 | steering API: **pause/resume/kill/override/redirect** | `Functions/SteeringApi.cs` → entity signals + external event |
 | **Durable orchestrations for long-running agent loops** | `Functions/AgentOrchestrator.cs` (the agent loop) |
@@ -37,7 +36,7 @@ Built with the same stack the JD names: **.NET 8 · Azure Functions (isolated wo
 
 ## The steering mechanism (the part to understand cold)
 
-Two Durable building blocks work together — interviewers will probe exactly this split:
+Two Durable building blocks work together:
 
 - **Durable Entity (`AgentRunEntity`)** — the authoritative *control state* (`Running/Paused/Killed/...`,
   current step, instruction). Operations are serialized per entity, so two concurrent steering
@@ -145,14 +144,14 @@ Then drive the demo and read the event-sourced trail:
 curl http://localhost:7071/api/runs/<runId>/history
 ```
 
-**Why these stores (interview):** Redis idempotency is a single atomic command — `SET key val NX EX` —
+**Why these stores:** Redis idempotency is a single atomic command — `SET key val NX EX` —
 so the dedupe and the TTL cleanup are one race-free round trip; no read-then-write window. Cosmos
 history is partitioned by `runId`, so every write is a point-write and every read is a single-partition
 query (cheap, predictable RU) instead of a fan-out cross-partition scan.
 
 ---
 
-## Production hardening (say these in the interview)
+## Production hardening
 
 - **Auth:** front with **APIM** (`validate-jwt`) + **Entra ID**. Service-to-service = client-credentials
   flow; data stores via **Managed Identity**, no connection strings. Drop the function-key auth used here.
