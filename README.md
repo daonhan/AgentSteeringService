@@ -125,12 +125,19 @@ docker run -d -p 6379:6379 redis
 
 # Cosmos DB emulator (Docker; Linux vNext emulator)
 docker run -d -p 8081:8081 mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview
-#   -> CosmosConnection = AccountEndpoint=https://localhost:8081/;AccountKey=<emulator-key>;
+#   -> CosmosConnection = AccountEndpoint=http://localhost:8081/;AccountKey=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==;
 ```
 
-The Cosmos emulator uses a well-known account key and a self-signed cert — trust the cert
-(or use the connection-string key) per the emulator docs. Client is in **Gateway** mode for
-emulator friendliness.
+The vNext emulator serves **plain HTTP** on `8081` (no cert to trust) and accepts the well-known
+account key above. Client is in **Gateway** mode for emulator friendliness.
+
+With the emulator up, the Cosmos store's integration tests (append → ordered single-partition read →
+partition isolation) run against it; without `COSMOS_TEST_CONNECTION` set they skip, so CI stays fast:
+
+```bash
+COSMOS_TEST_CONNECTION="AccountEndpoint=http://localhost:8081/;AccountKey=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==;" \
+  dotnet test tests/AgentSteeringService.Tests/AgentSteeringService.Tests.csproj
+```
 
 Then drive the demo and read the event-sourced trail:
 
