@@ -1,11 +1,9 @@
 # Agent Steering Service
 
+[![CI](https://github.com/daonhan/AgentSteeringService/actions/workflows/ci.yml/badge.svg)](https://github.com/daonhan/AgentSteeringService/actions/workflows/ci.yml)
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![Azure Functions](https://img.shields.io/badge/Azure%20Functions-v4%20isolated-0062AD?logo=azurefunctions&logoColor=white)](https://learn.microsoft.com/azure/azure-functions/dotnet-isolated-process-guide)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-
-<!-- After creating the GitHub repo, add the build badge (replace OWNER/REPO):
-[![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/ci.yml) -->
 
 A weekend scaffold that mirrors the **.NET Developer (Back-end Azure Functions) L1–3** job 1:1.
 It is the **control plane** for an AI-agent runtime: start long-running agent loops and
