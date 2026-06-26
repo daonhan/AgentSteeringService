@@ -15,7 +15,8 @@ Functions · Polly · Application Insights**.
 > "Production hardening" section maps each shortcut to what you'd really do.
 
 > **New here?** Start with the [Getting Started tour](docs/getting-started.md) — a plain-English
-> walkthrough of what this is and how it works. This README is the dense reference.
+> walkthrough of what this is and how it works. This README is the dense reference. For the
+> diagrams (component, steer sequence, run lifecycle), see [Architecture](docs/architecture.md).
 
 ---
 

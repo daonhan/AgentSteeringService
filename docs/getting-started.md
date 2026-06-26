@@ -251,6 +251,7 @@ rule from this whole document, remember this one: **keep the orchestrator pure.*
 
 ## Where to go next
 
+- **[Architecture](architecture.md)** — the diagrams: component map, steer sequence, run lifecycle.
 - **[README](../README.md)** — full API reference, store config keys, and the "production
   hardening" notes (auth, real sandboxing, what each shortcut would become for real).
 - **[CLAUDE.md](../CLAUDE.md)** — the architecture deep-dive and the determinism rules in detail.
