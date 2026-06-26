@@ -15,13 +15,19 @@ public class SteeringApi
 {
     private static readonly TimeSpan IdempotencyTtl = TimeSpan.FromHours(24);
 
+    // Short-lived: a steer is one quick signal+raise. TTL is just the crash safety net,
+    // the finally-release frees it on the happy path.
+    private static readonly TimeSpan SteerLockTtl = TimeSpan.FromSeconds(30);
+
     private readonly IIdempotencyStore _idempotency;
     private readonly IRunHistoryStore _history;
+    private readonly IDistributedLock _locks;
 
-    public SteeringApi(IIdempotencyStore idempotency, IRunHistoryStore history)
+    public SteeringApi(IIdempotencyStore idempotency, IRunHistoryStore history, IDistributedLock locks)
     {
         _idempotency = idempotency;
         _history = history;
+        _locks = locks;
     }
 
     // POST /api/runs            body: { "instruction": "summarize docs", "maxSteps": 10 }
@@ -73,23 +79,37 @@ public class SteeringApi
 
         var entityId = new EntityInstanceId(nameof(AgentRunEntity), id);
 
-        // 1) Update authoritative control state on the entity.
-        var op = cmd.Action switch
+        // The entity already serializes operations, so state can't corrupt. This lock is a level up:
+        // it stops two operators steering the SAME run at once (e.g. Kill racing Redirect) by letting
+        // exactly one in and telling the other 409 instead of silently interleaving their intents.
+        var lockToken = await _locks.TryAcquireAsync($"steer:{id}", SteerLockTtl);
+        if (lockToken is null)
+            return await Json(req, HttpStatusCode.Conflict, new { runId = id, error = "run is being steered by another operator" });
+
+        try
         {
-            SteerAction.Pause => client.Entities.SignalEntityAsync(entityId, "Pause"),
-            SteerAction.Resume => client.Entities.SignalEntityAsync(entityId, "Resume"),
-            SteerAction.Kill => client.Entities.SignalEntityAsync(entityId, "Kill"),
-            SteerAction.Redirect => client.Entities.SignalEntityAsync(entityId, "Redirect", cmd.NewInstruction ?? ""),
-            _ => Task.CompletedTask
-        };
-        await op;
+            // 1) Update authoritative control state on the entity.
+            var op = cmd.Action switch
+            {
+                SteerAction.Pause => client.Entities.SignalEntityAsync(entityId, "Pause"),
+                SteerAction.Resume => client.Entities.SignalEntityAsync(entityId, "Resume"),
+                SteerAction.Kill => client.Entities.SignalEntityAsync(entityId, "Kill"),
+                SteerAction.Redirect => client.Entities.SignalEntityAsync(entityId, "Redirect", cmd.NewInstruction ?? ""),
+                _ => Task.CompletedTask
+            };
+            await op;
 
-        // 2) Wake a paused orchestration so it re-reads state immediately.
-        await client.RaiseEventAsync(id, AgentOrchestrator.SteerEventName, cmd.Action.ToString());
-        await Record(id, $"STEER:{cmd.Action}", cmd.NewInstruction ?? "");
+            // 2) Wake a paused orchestration so it re-reads state immediately.
+            await client.RaiseEventAsync(id, AgentOrchestrator.SteerEventName, cmd.Action.ToString());
+            await Record(id, $"STEER:{cmd.Action}", cmd.NewInstruction ?? "");
 
-        log.LogInformation("Steer {Action} -> run {RunId}", cmd.Action, id);
-        return await Json(req, HttpStatusCode.Accepted, new { runId = id, action = cmd.Action.ToString() });
+            log.LogInformation("Steer {Action} -> run {RunId}", cmd.Action, id);
+            return await Json(req, HttpStatusCode.Accepted, new { runId = id, action = cmd.Action.ToString() });
+        }
+        finally
+        {
+            await _locks.ReleaseAsync($"steer:{id}", lockToken);
+        }
     }
 
     // GET /api/runs/{id}  -> current state + in-entity audit trail.

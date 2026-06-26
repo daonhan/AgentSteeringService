@@ -22,10 +22,12 @@ var host = new HostBuilder()
         {
             services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect(redis));
             services.AddSingleton<IIdempotencyStore, RedisIdempotencyStore>();
+            services.AddSingleton<IDistributedLock, RedisDistributedLock>();
         }
         else
         {
             services.AddSingleton<IIdempotencyStore, InMemoryIdempotencyStore>();
+            services.AddSingleton<IDistributedLock, InMemoryDistributedLock>();
         }
 
         // --- Run-history store: Cosmos if configured, else in-memory ---

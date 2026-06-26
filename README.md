@@ -26,6 +26,7 @@ Built with the same stack the JD names: **.NET 8 · Azure Functions (isolated wo
 | run state that survives restarts | `Functions/AgentRunEntity.cs` (Durable **Entity** = source of truth) |
 | **tool-execution sandbox plumbing** | `Functions/ToolActivities.cs` (activity = isolated outside world) |
 | **idempotency** | `Idempotency-Key` header → Redis atomic `SET NX EX` (`RedisIdempotencyStore`), in-memory fallback |
+| **no two operators steer one run at once** | Redis distributed lock per run (`IDistributedLock`/`RedisDistributedLock`) → second concurrent `/steer` gets **409** |
 | **retries / circuit-breakers** | Polly `ResiliencePipeline` (retry + circuit breaker + timeout) in `ToolActivities.cs` |
 | unbounded loop, bounded history | `ContinueAsNew` (eternal orchestration) in `AgentOrchestrator.cs` |
 | event-sourced run history | `CosmosRunHistoryStore` (partition `/runId`), in-memory fallback |
@@ -66,7 +67,7 @@ All of that lives in **activities** (`ToolActivities`), which is also why Polly 
 | Method | Route | Purpose |
 |---|---|---|
 | `POST` | `/api/runs` | Start a run. Body `{ "instruction": "...", "maxSteps": 10 }`. Optional `Idempotency-Key` header. |
-| `POST` | `/api/runs/{id}/steer` | Body `{ "action": "Pause\|Resume\|Kill\|Redirect", "newInstruction": "..." }`. |
+| `POST` | `/api/runs/{id}/steer` | Body `{ "action": "Pause\|Resume\|Kill\|Redirect", "newInstruction": "..." }`. Returns **409** if another operator is mid-steer on the same run. |
 | `GET`  | `/api/runs/{id}` | Current state + in-entity audit trail. |
 | `GET`  | `/api/runs/{id}/history` | Event-sourced history from the run-history store (Cosmos). |
 
@@ -111,7 +112,7 @@ real implementation on — no code change.
 
 | Setting | Empty (default) | Set |
 |---|---|---|
-| `RedisConnection` | in-memory idempotency | `RedisIdempotencyStore` — atomic `SET NX EX` |
+| `RedisConnection` | in-memory idempotency + steer lock | `RedisIdempotencyStore` (`SET NX EX`) + `RedisDistributedLock` (`SET NX EX` + Lua compare-and-delete release) |
 | `CosmosConnection` | in-memory history | `CosmosRunHistoryStore` — db/container auto-created, partition `/runId` |
 | `CosmosDatabase` / `CosmosContainer` | `agentsteering` / `runhistory` | override names |
 
@@ -153,8 +154,10 @@ query (cheap, predictable RU) instead of a fan-out cross-partition scan.
 - **Bulkhead:** add rate limiter / concurrency isolation to the Polly pipeline so one bad tool can't starve the pool.
 - **Real sandbox:** run tools in **Azure Container Apps / Container Instances**, reached over **gRPC** —
   compute isolation + security boundary instead of the in-proc stub here.
-- **State stores:** Cosmos run history is wired here. Still to add: **Postgres** for relational/transactional
-  config + audit, and a **Redis distributed lock** so two operators can't steer the same run at once.
+- **State stores:** Cosmos run history and a **Redis distributed lock** (`SET NX EX` + Lua compare-and-delete
+  release, in `RedisDistributedLock`) are wired here — the lock makes `/steer` reject a second operator on the
+  same run with **409** instead of interleaving intents. Still to add: **Postgres** for relational/transactional
+  config + audit.
 - **Telemetry:** correlation IDs end-to-end, App Insights / OpenTelemetry, caller identity on every audit line.
 
 ---
@@ -182,10 +185,13 @@ AgentSteeringService/
 ├─ Services/
 │  ├─ IdempotencyStore.cs          # interface + in-memory
 │  ├─ RedisIdempotencyStore.cs     # atomic SET NX EX
+│  ├─ DistributedLock.cs           # IDistributedLock interface + in-memory fallback
+│  ├─ RedisDistributedLock.cs      # SET NX EX + Lua compare-and-delete release
 │  ├─ RunHistoryStore.cs           # interface + in-memory
 │  └─ CosmosRunHistoryStore.cs     # event-sourced, partition /runId
+├─ tests/AgentSteeringService.Tests # xUnit — distributed-lock semantics
 ├─ demo.http / demo.ps1            # drive the steering flow
-├─ .github/workflows/ci.yml        # restore + build + format check
+├─ .github/workflows/ci.yml        # restore + build + format check + test
 └─ README.md
 ```
 

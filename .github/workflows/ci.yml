@@ -21,3 +21,6 @@ jobs:
 
       - name: Verify formatting
         run: dotnet format AgentSteeringService.csproj --verify-no-changes
+
+      - name: Test
+        run: dotnet test tests/AgentSteeringService.Tests/AgentSteeringService.Tests.csproj -c Release

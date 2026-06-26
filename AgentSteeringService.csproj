@@ -8,6 +8,11 @@
     <RootNamespace>AgentSteeringService</RootNamespace>
   </PropertyGroup>
 
+  <!-- The test project lives under this project's root; keep its sources out of this compile. -->
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <!-- Isolated worker core -->
     <PackageReference Include="Microsoft.Azure.Functions.Worker" Version="1.22.0" />
