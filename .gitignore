@@ -10,3 +10,12 @@ __azurite_db*.json
 __blobstorage__/
 __queuestorage__/
 .ralph-tmp/
+
+# Terraform — never commit state or saved plans (may contain secret material).
+.terraform/
+*.tfstate
+*.tfstate.*
+tfplan
+*.tfplan
+crash.log
+crash.*.log

@@ -44,6 +44,12 @@ Durable decisions that apply across all phases:
 
 ## Phase 1: Tracer bullet — dev provisioned + deployed end-to-end (baseline)
 
+**Status**: code complete (2026-06-28). `infra/` (root + bootstrap + storage/monitoring/
+functionapp modules + dev env files), `cd.yml` (apply-dev → deploy-dev), `.gitignore`, and
+both `.terraform.lock.hcl` files committed. Static gates pass: `terraform fmt -check`,
+`terraform validate` (azurerm 4.79.0, random 3.9.0), `actionlint`. Items still requiring a
+live operator `az login` apply + smoke check are left unchecked below.
+
 **User stories**: 1, 2, 3, 4, 5, 6, 9, 10, 11, 14, 15, 21, 24 (and dev portions of 27, 30)
 
 ### What to build
@@ -61,20 +67,20 @@ or plan file is ever committed.
 ### Acceptance criteria
 
 - [ ] `infra/bootstrap/` applies locally with `az login` and creates the state RG, storage
-      account, and `tfstate` container; it emits the storage account name.
+      account, and `tfstate` container; it emits the storage account name. *(requires live apply)*
 - [ ] `infra/` initializes against the `azurerm` backend using `dev.backend.hcl`
-      (key `dev.tfstate`) and applies cleanly to `rg-agentsteering-dev`.
-- [ ] Dev provisions exactly: Storage account (wired as `AzureWebJobsStorage` + Flex
+      (key `dev.tfstate`) and applies cleanly to `rg-agentsteering-dev`. *(requires live apply)*
+- [x] Dev provisions exactly: Storage account (wired as `AzureWebJobsStorage` + Flex
       deployment container), Log Analytics + Application Insights, and a Flex Consumption
       Function App (`dotnet-isolated` 8.0) with a system-assigned managed identity.
-- [ ] Dev Function App has **no** `RedisConnection` / `CosmosConnection` settings (in-memory
+- [x] Dev Function App has **no** `RedisConnection` / `CosmosConnection` settings (in-memory
       fallbacks active); `APPLICATIONINSIGHTS_CONNECTION_STRING` is set.
-- [ ] `cd.yml` on push to `main`: `azure/login` with `AZURE_CREDENTIALS`, `apply-dev`
+- [x] `cd.yml` on push to `main`: `azure/login` with `AZURE_CREDENTIALS`, `apply-dev`
       (exports app name + RG as job outputs), then `deploy-dev` does `dotnet publish` →
       `Azure/functions-action` to that app.
 - [ ] After a merge to `main`, `POST /api/runs` against the live dev app starts a run and
-      `GET /api/runs/{id}` returns its state (manual smoke check).
-- [ ] `.gitignore` excludes `.terraform/`, `*.tfstate*`, `tfplan`, and bootstrap local
+      `GET /api/runs/{id}` returns its state (manual smoke check). *(requires live apply)*
+- [x] `.gitignore` excludes `.terraform/`, `*.tfstate*`, `tfplan`, and bootstrap local
       state; `.terraform.lock.hcl` is committed. No state/plan file appears in `git status`.
 
 ---
