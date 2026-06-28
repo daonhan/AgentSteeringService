@@ -16,7 +16,7 @@ env:
   TF_VERSION: "1.9.8"
 
 jobs:
-  # ---- PR review path (Phase 2): static gates + plan comment + soft Checkov ----
+  # ---- PR review path (Phase 2): static gates + plan comment + scoped Checkov gate ----
 
   terraform-validate:
     name: Terraform fmt + validate (gate)
@@ -106,12 +106,24 @@ jobs:
             }
 
   checkov:
-    name: Checkov scan (soft)
+    name: Checkov scan + scoped hardening gate
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
+    # Scoped hard gate (Phase 2): only the transport/public-access hardening rules
+    # below block the PR; every other Checkov finding is reported in the comment but
+    # never fails the job, so one opinionated rule can't wedge the pipeline.
+    #   CKV_AZURE_70  — Function App HTTPS-only       (forward-looking: the Flex
+    #   CKV_AZURE_145 — Function App minimum TLS 1.2   Consumption resource has no
+    #                                                  Checkov coverage yet, so these
+    #                                                  are inert today but activate if
+    #                                                  coverage lands / the type changes)
+    #   CKV_AZURE_44  — Storage account minimum TLS 1.2 (enforced now)
+    #   CKV_AZURE_190 — Storage blobs restrict public access (enforced now)
+    env:
+      CHECKOV_GATE_CHECKS: CKV_AZURE_70,CKV_AZURE_145,CKV_AZURE_44,CKV_AZURE_190
     steps:
       - uses: actions/checkout@v4
 
@@ -122,10 +134,10 @@ jobs:
       - name: Install Checkov
         run: pip install --disable-pip-version-check checkov
 
-      - name: Run Checkov (soft)
+      - name: Run Checkov (full, informational)
         id: checkov
         working-directory: infra
-        # Soft gate: capture findings but never fail the job.
+        # Full scan: capture every finding for the PR comment but never fail here.
         run: |
           set +e
           checkov --directory . --framework terraform --compact --quiet --output cli > checkov_output.txt 2>&1
@@ -152,10 +164,13 @@ jobs:
             if (report.length > max) report = report.slice(0, max) + '\n... (truncated)';
             const status = (process.env.CHECKOV_EXIT === '0')
               ? '✅ no failed checks'
-              : '⚠️ findings reported (non-blocking)';
+              : '⚠️ findings reported (informational — only the scoped hardening rules block)';
             const body = [
               marker,
-              `## Checkov security scan (soft) — ${status}`,
+              `## Checkov security scan — ${status}`,
+              '',
+              'Findings below are informational. The scoped transport/public-access hardening',
+              'rules are enforced by a separate blocking step on this job.',
               '',
               '<details><summary>Show report</summary>',
               '',
@@ -173,6 +188,12 @@ jobs:
             } else {
               await github.rest.issues.createComment({ owner, repo, issue_number, body });
             }
+
+      - name: Checkov scoped hardening gate (blocking)
+        working-directory: infra
+        # Required check: fails the PR if any scoped transport/public-access rule
+        # regresses. No `set +e` — a non-zero Checkov exit fails the job.
+        run: checkov --directory . --framework terraform --check "$CHECKOV_GATE_CHECKS" --compact --quiet --output cli
 
   # ---- Delivery path (Phase 1): apply + deploy dev on push to main ----
 

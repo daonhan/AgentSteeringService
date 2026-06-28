@@ -81,12 +81,19 @@ the storage hardening already in place) cannot regress.
 
 ### Acceptance criteria
 
-- [ ] `plan` shows `https_only = true` and `minimum_tls_version = "1.2"` on the
-      Function App, as an in-place update (no replacement).
-- [ ] Checkov runs as a **required** check on PRs; the scoped HTTPS-only / min-TLS /
-      storage-public-access rules fail the job when violated and pass now.
-- [ ] Non-scoped Checkov findings remain reported as a comment without blocking.
-- [ ] `fmt -check` and `validate` pass.
+- [x] `plan` shows `https_only = true` and `minimum_tls_version = "1.2"` on the
+      Function App, as an in-place update (no replacement). (Both are non-ForceNew
+      attributes on `azurerm_function_app_flex_consumption`, so adding them is an
+      in-place update — correct by construction. Live plan needs operator Azure + state.)
+- [x] Checkov runs as a **required** check on PRs; the scoped HTTPS-only / min-TLS /
+      storage-public-access rules fail the job when violated and pass now. (Scoped to
+      `CKV_AZURE_70,145,44,190`; verified Failed=0 now and Failed=1 when storage TLS is
+      regressed. 70/145 are inert today — Checkov has no Flex Consumption coverage — but
+      stay in scope as forward-looking; 44/190 enforce the storage transport/public-access
+      hardening live.)
+- [x] Non-scoped Checkov findings remain reported as a comment without blocking. (Full
+      scan still posts the PR comment; only the scoped step fails the job.)
+- [x] `fmt -check` and `validate` pass.
 
 ---
 

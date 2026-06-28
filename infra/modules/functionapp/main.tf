@@ -24,7 +24,12 @@ resource "azurerm_function_app_flex_consumption" "this" {
   maximum_instance_count = 40
   instance_memory_in_mb  = 2048
 
-  site_config {}
+  # Transport hardening: serve only HTTPS and reject pre-1.2 TLS on the public listener.
+  https_only = true
+
+  site_config {
+    minimum_tls_version = "1.2"
+  }
 
   # Baseline settings are always present. RedisConnection / CosmosConnection are
   # added only when supplied (prod, as Key Vault references); when empty the app
