@@ -87,6 +87,16 @@ or plan file is ever committed.
 
 ## Phase 2: PR review path — quality gates + plan-on-PR
 
+**Status**: code complete (2026-06-28). `cd.yml` extended with a `pull_request` trigger
+(paths `infra/**`, `.github/workflows/cd.yml`) and three PR-only jobs: `terraform-validate`
+(fmt -check + `init -backend=false` + validate — the hard gate), `terraform-plan` (dev plan
+posted/updated as a PR comment, `pull-requests: write`), and `checkov` (pip Checkov, soft —
+never fails the job, comments findings). `apply-dev` / `deploy-dev` are gated with
+`if: github.event_name != 'pull_request'`. `ci.yml` untouched. Static gates pass locally:
+`terraform fmt -check -recursive`, `terraform validate` (`-backend=false`), `actionlint`,
+and `node --check` on the two `github-script` bodies. Live PR-run observation of the posted
+plan/Checkov comments is left to a real PR.
+
 **User stories**: 16, 17, 18, 19, 20, 29
 
 ### What to build
@@ -100,13 +110,16 @@ comment, and runs a Checkov security scan that comments findings without blockin
 
 ### Acceptance criteria
 
-- [ ] On PR, `cd.yml` runs `terraform fmt -check` and `terraform validate`; a formatting or
-      validation error fails the check.
-- [ ] On PR, a dev `terraform plan` runs and its output is posted/updated as a PR comment.
-- [ ] On PR, Checkov scans the Terraform and reports findings as a comment; findings do
-      **not** fail the check (soft).
-- [ ] PRs do not trigger any `apply` or `deploy` job.
-- [ ] `ci.yml` still runs and is unmodified.
+- [x] On PR, `cd.yml` runs `terraform fmt -check` and `terraform validate`; a formatting or
+      validation error fails the check. *(`terraform-validate` job; gate verified locally)*
+- [x] On PR, a dev `terraform plan` runs and its output is posted/updated as a PR comment.
+      *(`terraform-plan` job; create-or-update by marker. Live PR run to observe the comment
+      pending.)*
+- [x] On PR, Checkov scans the Terraform and reports findings as a comment; findings do
+      **not** fail the check (soft). *(`checkov` job; `exit 0` keeps it soft.)*
+- [x] PRs do not trigger any `apply` or `deploy` job. *(`if: github.event_name != 'pull_request'`
+      on `apply-dev` / `deploy-dev`.)*
+- [x] `ci.yml` still runs and is unmodified. *(unchanged; `git status` confirms.)*
 
 ---
 

@@ -3,6 +3,10 @@ name: CD
 on:
   push:
     branches: [main]
+  pull_request:
+    paths:
+      - "infra/**"
+      - ".github/workflows/cd.yml"
   workflow_dispatch:
 
 permissions:
@@ -12,8 +16,169 @@ env:
   TF_VERSION: "1.9.8"
 
 jobs:
+  # ---- PR review path (Phase 2): static gates + plan comment + soft Checkov ----
+
+  terraform-validate:
+    name: Terraform fmt + validate (gate)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform fmt check
+        working-directory: infra
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init (no backend)
+        working-directory: infra
+        run: terraform init -input=false -backend=false
+
+      - name: Terraform validate
+        working-directory: infra
+        run: terraform validate -no-color
+
+  terraform-plan:
+    name: Terraform plan (dev) → PR comment
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+      ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+      ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+      ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform init
+        working-directory: infra
+        run: terraform init -input=false -backend-config=environments/dev.backend.hcl
+
+      - name: Terraform plan (dev)
+        id: plan
+        working-directory: infra
+        # -lock=false: a PR preview is read-only; do not contend with a main apply.
+        run: terraform plan -input=false -lock=false -var-file=environments/dev.tfvars -no-color
+        continue-on-error: true
+
+      - name: Post plan as PR comment
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          PLAN_OUTCOME: ${{ steps.plan.outcome }}
+          PLAN_STDOUT: ${{ steps.plan.outputs.stdout }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const marker = '<!-- terraform-plan-dev -->';
+            let plan = process.env.PLAN_STDOUT || '(no plan output captured)';
+            const max = 60000;
+            if (plan.length > max) plan = plan.slice(0, max) + '\n... (truncated)';
+            const body = [
+              marker,
+              `## Terraform dev plan — \`${process.env.PLAN_OUTCOME}\``,
+              '',
+              '<details><summary>Show plan</summary>',
+              '',
+              '```terraform',
+              plan,
+              '```',
+              '</details>',
+            ].join('\n');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number });
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+  checkov:
+    name: Checkov scan (soft)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Checkov
+        run: pip install --disable-pip-version-check checkov
+
+      - name: Run Checkov (soft)
+        id: checkov
+        working-directory: infra
+        # Soft gate: capture findings but never fail the job.
+        run: |
+          set +e
+          checkov --directory . --framework terraform --compact --quiet --output cli > checkov_output.txt 2>&1
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Post Checkov results as PR comment
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          CHECKOV_EXIT: ${{ steps.checkov.outputs.exit_code }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- checkov-scan -->';
+            let report = '';
+            try {
+              report = fs.readFileSync('infra/checkov_output.txt', 'utf8');
+            } catch (e) {
+              report = 'Checkov produced no output.';
+            }
+            const max = 60000;
+            if (report.length > max) report = report.slice(0, max) + '\n... (truncated)';
+            const status = (process.env.CHECKOV_EXIT === '0')
+              ? '✅ no failed checks'
+              : '⚠️ findings reported (non-blocking)';
+            const body = [
+              marker,
+              `## Checkov security scan (soft) — ${status}`,
+              '',
+              '<details><summary>Show report</summary>',
+              '',
+              '```',
+              report,
+              '```',
+              '</details>',
+            ].join('\n');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number });
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+  # ---- Delivery path (Phase 1): apply + deploy dev on push to main ----
+
   apply-dev:
     name: Apply dev infrastructure
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment: dev
     outputs:
@@ -54,6 +219,7 @@ jobs:
   deploy-dev:
     name: Deploy dev Function App
     needs: apply-dev
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment: dev
     steps:
