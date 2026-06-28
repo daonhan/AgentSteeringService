@@ -110,12 +110,14 @@ block (mirroring the existing `environment` validation) or a root `precondition`
 
 ### Acceptance criteria
 
-- [ ] With `enable_cosmos = true` (or `enable_redis = true`) and `enable_keyvault =
+- [x] With `enable_cosmos = true` (or `enable_redis = true`) and `enable_keyvault =
       false`, `terraform plan` fails fast with a clear error message naming the
-      invariant.
-- [ ] The existing `dev.tfvars` (all flags off) and `prod.tfvars` (all flags on) both
-      still plan cleanly.
-- [ ] `fmt -check` and `validate` pass.
+      invariant. (Cross-variable `validation` on `enable_keyvault`; verified `plan`
+      aborts with "Invalid value for variable" on both bad combos before any Azure
+      call. Cross-variable references require Terraform >= 1.9, already pinned.)
+- [x] The existing `dev.tfvars` (all flags off) and `prod.tfvars` (all flags on) both
+      still plan cleanly. (No validation error on either toggle set.)
+- [x] `fmt -check` and `validate` pass.
 
 ---
 

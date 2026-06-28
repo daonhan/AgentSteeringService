@@ -32,4 +32,13 @@ variable "enable_keyvault" {
   type        = bool
   description = "Provision Key Vault holding the store secrets, referenced from app settings."
   default     = false
+
+  # A store's connection only reaches the app through a Key Vault reference, so a
+  # store enabled without Key Vault is provisioned billed-but-unreachable. Couple
+  # the toggles so that misconfiguration fails fast at plan time. (Cross-variable
+  # validation references require Terraform >= 1.9.)
+  validation {
+    condition     = var.enable_keyvault || !(var.enable_redis || var.enable_cosmos)
+    error_message = "enable_keyvault must be true when enable_redis or enable_cosmos is true: a store's connection only reaches the app through a Key Vault reference, so a store without Key Vault would be provisioned billed-but-unreachable."
+  }
 }
