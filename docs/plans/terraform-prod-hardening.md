@@ -215,12 +215,26 @@ alerts (exit code 2) without applying.
 
 ### Acceptance criteria
 
-- [ ] A commit touching only application/docs files does **not** trigger
-      apply-dev/deploy/plan-prod.
-- [ ] Two near-simultaneous infra pushes serialize on the concurrency group; an
-      in-flight apply is never cancelled.
-- [ ] A scheduled run reports drift via exit code 2 and performs no apply.
-- [ ] Existing PR gates and the gated dev→prod DAG are unchanged.
+- [x] A commit touching only application/docs files does **not** trigger
+      apply-dev/deploy/plan-prod. (Added a `paths: [infra/**, .github/workflows/cd.yml]`
+      filter to the `push` trigger — a non-matching commit doesn't start the workflow,
+      so no apply runs and no prod approval is raised.)
+- [x] Two near-simultaneous infra pushes serialize on the concurrency group; an
+      in-flight apply is never cancelled. (Job-level
+      `concurrency: { group: terraform-${{ github.ref }}, cancel-in-progress: false }`
+      on `apply-dev` and `apply-prod`; the running apply holds the group and a second
+      push's apply queues rather than cancelling it.)
+- [x] A scheduled run reports drift via exit code 2 and performs no apply. (New `drift`
+      job, gated on `github.event_name == 'schedule'` (daily cron), matrixed over
+      dev/prod, runs `terraform plan -lock=false -detailed-exitcode`; exit 2 ⇒ a
+      `::warning::` annotation and a failing job, never an apply. The apply/deploy/plan
+      jobs' gate was tightened from `!= 'pull_request'` to `== 'push' ||
+      == 'workflow_dispatch'` so the schedule event can't reach the apply path.)
+- [x] Existing PR gates and the gated dev→prod DAG are unchanged. (PR jobs still gated
+      on `pull_request`; the `needs` DAG and the `dev`/`prod` Environment approval gates
+      are untouched. The job-gate rewrite is event-equivalent to the old condition for
+      the pre-existing trigger set — push and workflow_dispatch both still apply.
+      Verified with `actionlint` (clean, incl. shellcheck on the drift script).)
 
 ---
 

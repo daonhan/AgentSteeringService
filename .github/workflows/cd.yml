@@ -3,10 +3,18 @@ name: CD
 on:
   push:
     branches: [main]
+    # Path filter (Phase 6): a code- or docs-only commit must not run an infra
+    # apply or raise a prod approval. Only infra/workflow changes trigger delivery.
+    paths:
+      - "infra/**"
+      - ".github/workflows/cd.yml"
   pull_request:
     paths:
       - "infra/**"
       - ".github/workflows/cd.yml"
+  schedule:
+    # Daily drift detection (Phase 6): plan-only, never applies. See the `drift` job.
+    - cron: "0 6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -199,9 +207,14 @@ jobs:
 
   apply-dev:
     name: Apply dev infrastructure
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: dev
+    # Serialize applies on the branch ref so two quick pushes can't run overlapping
+    # applies against shared state; cancel-in-progress:false never kills a live apply.
+    concurrency:
+      group: terraform-${{ github.ref }}
+      cancel-in-progress: false
     outputs:
       function_app_name: ${{ steps.tf-outputs.outputs.function_app_name }}
       resource_group_name: ${{ steps.tf-outputs.outputs.resource_group_name }}
@@ -240,7 +253,7 @@ jobs:
   deploy-dev:
     name: Deploy dev Function App
     needs: apply-dev
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: dev
     steps:
@@ -273,7 +286,7 @@ jobs:
   plan-prod:
     name: Plan prod infrastructure
     needs: deploy-dev
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     env:
       ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
@@ -305,9 +318,14 @@ jobs:
   apply-prod:
     name: Apply prod infrastructure
     needs: plan-prod
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: prod
+    # Same non-cancelling group as apply-dev: prod and dev applies on this ref
+    # serialize, and an in-flight apply is never cancelled by a newer push.
+    concurrency:
+      group: terraform-${{ github.ref }}
+      cancel-in-progress: false
     outputs:
       function_app_name: ${{ steps.tf-outputs.outputs.function_app_name }}
       resource_group_name: ${{ steps.tf-outputs.outputs.resource_group_name }}
@@ -348,7 +366,7 @@ jobs:
   deploy-prod:
     name: Deploy prod Function App
     needs: apply-prod
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: prod
     steps:
@@ -370,3 +388,54 @@ jobs:
         with:
           app-name: ${{ needs.apply-prod.outputs.function_app_name }}
           package: ./publish
+
+  # ---- Scheduled drift detection (Phase 6): plan-only, alerts on exit code 2 ----
+  # Runs daily against each environment's real state. `terraform plan
+  # -detailed-exitcode` returns 2 when state has drifted from config (an out-of-band
+  # portal change). The job surfaces that as a warning annotation and fails to alert;
+  # it never applies. Read-only, so it is not behind the prod approval Environment.
+
+  drift:
+    name: Drift detection (${{ matrix.environment }})
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, prod]
+    env:
+      ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+      ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+      ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+      ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          # wrapper off so the step sees terraform's real -detailed-exitcode value.
+          terraform_wrapper: false
+
+      - name: Terraform init
+        working-directory: infra
+        run: terraform init -input=false -backend-config=environments/${{ matrix.environment }}.backend.hcl
+
+      - name: Terraform plan (drift detection)
+        working-directory: infra
+        # -lock=false keeps this read-only check from contending with a live apply.
+        # No -out and no apply step: drift is reported, never reconciled here.
+        run: |
+          set +e
+          terraform plan -input=false -lock=false -detailed-exitcode \
+            -var-file=environments/${{ matrix.environment }}.tfvars -no-color
+          code=$?
+          set -e
+          if [ "$code" = "2" ]; then
+            echo "::warning title=Terraform drift::${{ matrix.environment }} has drifted — plan shows changes outside Terraform."
+            exit 2
+          elif [ "$code" = "1" ]; then
+            echo "::error title=Terraform plan failed::drift check for ${{ matrix.environment }} errored."
+            exit 1
+          fi
+          echo "No drift detected in ${{ matrix.environment }}."
