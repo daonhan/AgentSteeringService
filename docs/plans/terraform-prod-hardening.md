@@ -135,16 +135,26 @@ throttled requests / Redis evictions. The new resources appear in the plan-as-PR
 
 ### Acceptance criteria
 
-- [ ] `plan` shows one `azurerm_monitor_diagnostic_setting` targeting the Function App
-      and pointing at the existing LAW.
-- [ ] The diagnostic setting's **metric** categories are sourced from the metric
+- [x] `plan` shows one `azurerm_monitor_diagnostic_setting` targeting the Function App
+      and pointing at the existing LAW. (New `infra/modules/diagnostics` emits exactly
+      one setting; consumed at the root as `module.functionapp_diagnostics` so it can
+      reference `module.functionapp.id` without a functionapp↔monitoring cycle. Live
+      plan needs operator Azure + state.)
+- [x] The diagnostic setting's **metric** categories are sourced from the metric
       category list (not the log list) — platform metrics are actually enabled, not an
-      empty set.
-- [ ] An action group and at least the Function App failure alert are planned; store
-      alerts are present only when `enable_cosmos`/`enable_redis` are on.
-- [ ] The `diagnostics` module has its own `variables.tf`/`outputs.tf` and is consumed,
+      empty set. (`enabled_metric` iterates `data.azurerm_monitor_diagnostic_categories.
+      metrics`; `enabled_log` iterates `log_category_types` — correct by construction.)
+- [x] An action group and at least the Function App failure alert are planned; store
+      alerts are present only when `enable_cosmos`/`enable_redis` are on. (Action group
+      in the monitoring module; `function_errors` (Http5xx) always; `cosmos_throttled`
+      (429s) `count`-gated on `enable_cosmos`; `redis_evictions` `count`-gated on
+      `enable_redis`. Action group has no receivers — wiring one is an operator step,
+      not a checked-in placeholder.)
+- [x] The `diagnostics` module has its own `variables.tf`/`outputs.tf` and is consumed,
       not inlined.
-- [ ] `fmt -check`, `validate`, and the Checkov gate pass.
+- [x] `fmt -check`, `validate`, and the Checkov gate pass. (Scoped Checkov
+      CKV_AZURE_70/145/44/190 Failed=0; provider schema confirmed `enabled_metric`/
+      `enabled_log` blocks against azurerm 4.79.)
 
 ---
 

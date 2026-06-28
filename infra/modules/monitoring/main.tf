@@ -17,3 +17,13 @@ resource "azurerm_application_insights" "this" {
   workspace_id        = azurerm_log_analytics_workspace.this.id
   tags                = var.tags
 }
+
+# Fan-out target for the metric alerts. Created with no receivers on purpose —
+# wiring a real email/webhook is an operator step, not a checked-in placeholder
+# (the cross-project review flagged placeholder alert emails as an anti-pattern).
+resource "azurerm_monitor_action_group" "this" {
+  name                = "ag-agentsteering-${var.environment}"
+  resource_group_name = var.resource_group_name
+  short_name          = "ag-${var.environment}"
+  tags                = var.tags
+}

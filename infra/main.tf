@@ -120,3 +120,106 @@ resource "azurerm_role_assignment" "func_kv_secrets_user" {
   role_definition_name = "Key Vault Secrets User"
   principal_id         = module.functionapp.principal_id
 }
+
+# --- Observability (Phase 4) ------------------------------------------------
+# The diagnostics module and the metric alerts target the Function App, which
+# already depends on `monitoring` (App Insights). Placing them inside the
+# monitoring module would make monitoring depend on functionapp and create a
+# module cycle, so they live at the root — same reasoning as the role
+# assignment above. The action group itself has no such coupling and stays in
+# the monitoring module; the alerts reference it by output.
+
+# Export the Function App's host/function logs and platform metrics to the
+# existing Log Analytics workspace. Metric categories are sourced from the
+# metric list inside the module (correct by construction).
+module "functionapp_diagnostics" {
+  source = "./modules/diagnostics"
+
+  name                       = "diag-${local.function_app_name}"
+  target_resource_id         = module.functionapp.id
+  log_analytics_workspace_id = module.monitoring.log_analytics_workspace_id
+}
+
+# Always-on: the Function App is returning server (5xx) errors.
+resource "azurerm_monitor_metric_alert" "function_errors" {
+  name                = "alert-func-5xx-agentsteering-${var.environment}"
+  resource_group_name = azurerm_resource_group.this.name
+  scopes              = [module.functionapp.id]
+  description         = "Function App is returning server (5xx) errors."
+  severity            = 2
+  frequency           = "PT5M"
+  window_size         = "PT15M"
+
+  criteria {
+    metric_namespace = "Microsoft.Web/sites"
+    metric_name      = "Http5xx"
+    aggregation      = "Total"
+    operator         = "GreaterThan"
+    threshold        = 0
+  }
+
+  action {
+    action_group_id = module.monitoring.action_group_id
+  }
+
+  tags = local.tags
+}
+
+# Store alerts exist only when the prod stores are provisioned.
+resource "azurerm_monitor_metric_alert" "cosmos_throttled" {
+  count = var.enable_cosmos ? 1 : 0
+
+  name                = "alert-cosmos-429-agentsteering-${var.environment}"
+  resource_group_name = azurerm_resource_group.this.name
+  scopes              = [module.cosmos[0].id]
+  description         = "Cosmos DB is throttling requests (HTTP 429)."
+  severity            = 2
+  frequency           = "PT5M"
+  window_size         = "PT15M"
+
+  criteria {
+    metric_namespace = "Microsoft.DocumentDB/databaseAccounts"
+    metric_name      = "TotalRequests"
+    aggregation      = "Count"
+    operator         = "GreaterThan"
+    threshold        = 0
+
+    dimension {
+      name     = "StatusCode"
+      operator = "Include"
+      values   = ["429"]
+    }
+  }
+
+  action {
+    action_group_id = module.monitoring.action_group_id
+  }
+
+  tags = local.tags
+}
+
+resource "azurerm_monitor_metric_alert" "redis_evictions" {
+  count = var.enable_redis ? 1 : 0
+
+  name                = "alert-redis-evictions-agentsteering-${var.environment}"
+  resource_group_name = azurerm_resource_group.this.name
+  scopes              = [module.redis[0].id]
+  description         = "Redis is evicting keys under memory pressure."
+  severity            = 2
+  frequency           = "PT5M"
+  window_size         = "PT15M"
+
+  criteria {
+    metric_namespace = "Microsoft.Cache/redis"
+    metric_name      = "evictedkeys"
+    aggregation      = "Total"
+    operator         = "GreaterThan"
+    threshold        = 0
+  }
+
+  action {
+    action_group_id = module.monitoring.action_group_id
+  }
+
+  tags = local.tags
+}
