@@ -13,5 +13,13 @@ resource "azurerm_redis_cache" "this" {
   non_ssl_port_enabled = false
   minimum_tls_version  = "1.2"
 
+  # Passwordless data-plane auth (Phase 9): accept Microsoft Entra (AAD) tokens so
+  # the app identity can authenticate without an access key. The app's data-access
+  # policy is assigned at the root (azurerm_redis_cache_access_policy_assignment),
+  # and only the keyless host:port endpoint is shipped to the app.
+  redis_configuration {
+    active_directory_authentication_enabled = true
+  }
+
   tags = var.tags
 }

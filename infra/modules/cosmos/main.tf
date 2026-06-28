@@ -12,6 +12,13 @@ resource "azurerm_cosmosdb_account" "this" {
     name = "EnableServerless"
   }
 
+  # Passwordless data-plane auth (Phase 9): disable key/connection-string auth so
+  # the account is reachable only by AAD RBAC. The app identity gets the data-plane
+  # role at the root (azurerm_cosmosdb_sql_role_assignment), so no account key flows
+  # through app settings or Terraform state. (Non-deprecated form of the legacy
+  # `local_authentication_disabled = true`.)
+  local_authentication_enabled = false
+
   consistency_policy {
     consistency_level = "Session"
   }

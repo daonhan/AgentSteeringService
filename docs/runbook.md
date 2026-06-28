@@ -196,6 +196,22 @@ references, so `GET /api/runs/{id}/history` is Cosmos-backed and a duplicate `PO
 Prod's extra stores are gated by `enable_redis` / `enable_cosmos` / `enable_keyvault`,
 which default `false` and are set `true` only in `prod.tfvars`.
 
+### Prod auth posture (passwordless)
+
+Prod ships **no storage or store access keys** through Terraform state. The Function
+App reaches storage by its managed identity; Cosmos has key auth disabled and is
+reached by an AAD data-plane role; Redis uses Microsoft Entra auth via a data-access
+policy assignment. The `RedisConnection` / `CosmosConnection` Key Vault secrets carry
+only the keyless endpoint. Two operator follow-ups before a prod store serves traffic:
+
+- **Key Vault network ACLs** deny by default (Azure-services bypass only). The deployer
+  writing the secrets — and any operator using the portal data plane — must be allowed
+  in via an `ip_rules` entry, a self-hosted/Azure runner, or a private endpoint.
+- **Runtime store roles.** Identity-based `AzureWebJobsStorage` for the Durable task hub
+  also needs Storage **Queue** + **Table** Data Contributor (Phase 8 grants Blob Data
+  Owner only), and the app's Cosmos/Redis clients must adopt token auth
+  (`DefaultAzureCredential`) to use the keyless endpoints.
+
 ### Naming & tags
 
 | Resource | Name | Tags |

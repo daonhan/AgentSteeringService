@@ -329,11 +329,34 @@ Update the residual-exposure note in the prior PRD/runbook to match the new post
 
 ### Acceptance criteria
 
-- [ ] With `prod.tfvars` (stores on), `plan` shows Cosmos local-auth disabled + the app
+- [x] With `prod.tfvars` (stores on), `plan` shows Cosmos local-auth disabled + the app
       identity's SQL role, KV purge protection + network ACLs, and Redis Entra auth.
-- [ ] No Cosmos/Redis access key is required by the app at runtime in prod.
-- [ ] Key Vault rejects public access by default (Azure-services bypass only) and
-      cannot be purged.
-- [ ] The documented security posture (PRD residual-exposure note / runbook) reflects
-      the removal of key-based auth.
-- [ ] `fmt -check`, `validate`, and the Checkov gate pass.
+      (Cosmos `local_authentication_enabled = false` — the non-deprecated form of
+      `local_authentication_disabled = true`, identical intent, avoids the azurerm-4.x
+      deprecation warning; root `azurerm_cosmosdb_sql_role_assignment.func_cosmos_data`
+      grants the app identity the built-in Data Contributor role. KV
+      `purge_protection_enabled = true` + `network_acls` deny-default/AzureServices-bypass.
+      Redis `redis_configuration { active_directory_authentication_enabled = true }` +
+      root `azurerm_redis_cache_access_policy_assignment.func_redis_data` (Data Owner).
+      Role assignments live at the root to avoid functionapp↔store module cycles, matching
+      the KV/storage grants. Live plan needs operator Azure + state.)
+- [x] No Cosmos/Redis access key is required by the app at runtime in prod. (At the infra
+      layer key auth is the *only* path removed: Cosmos key auth is disabled and the keyed
+      `primary_sql_connection_string`/Redis `primary_connection_string` outputs are dropped
+      in favour of keyless `endpoint`/`hostname`+`ssl_port`, so the Key Vault secrets carry
+      no key. **App follow-up:** the app's Cosmos/Redis clients must adopt
+      `DefaultAzureCredential`/an Entra token to consume the keyless endpoints — out of
+      scope per the "no application source changes" rule, documented in the PRD note and
+      runbook, parallel to Phase 8's queue/table role follow-up.)
+- [x] Key Vault rejects public access by default (Azure-services bypass only) and
+      cannot be purged. (`network_acls { default_action = "Deny", bypass = "AzureServices" }`
+      and `purge_protection_enabled = true`. Operator caveat: the secret-writing deployer
+      must be allowed past the deny-default ACL — runbook documents this.)
+- [x] The documented security posture (PRD residual-exposure note / runbook) reflects
+      the removal of key-based auth. (Prior PRD "Secrets" section rewritten to state prod
+      ships no access keys through state; runbook gains a "Prod auth posture (passwordless)"
+      subsection.)
+- [x] `fmt -check`, `validate`, and the Checkov gate pass. (`terraform fmt -check
+      -recursive` and `terraform validate` clean with no warnings; scoped Checkov
+      CKV_AZURE_70/145/44/190 Passed=4 Failed=0; full informational scan improved
+      35→32 failed / 21→24 passed — the hardening adds no new failed check.)

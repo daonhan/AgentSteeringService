@@ -13,14 +13,12 @@ variable "location" {
 
 variable "redis_connection_string" {
   type        = string
-  description = "Redis connection string to store as the RedisConnection secret."
-  sensitive   = true
+  description = "Keyless Redis endpoint (host:ssl_port) stored as the RedisConnection secret; auth is via the app's Entra identity, so no access key is shipped."
 }
 
 variable "cosmos_connection_string" {
   type        = string
-  description = "Cosmos connection string to store as the CosmosConnection secret."
-  sensitive   = true
+  description = "Keyless Cosmos endpoint stored as the CosmosConnection secret; auth is via the app's AAD identity, so no account key is shipped."
 }
 
 variable "tags" {

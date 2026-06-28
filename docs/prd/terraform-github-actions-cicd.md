@@ -165,13 +165,27 @@ plain app settings and the application code is unchanged. Terraform state lives 
   Runtime `dotnet-isolated`, version `8.0`. Durable Functions runs on Flex Consumption.
 
 ### Secrets
-- **Key Vault references.** Prod's Redis and Cosmos connection strings are written to Key
-  Vault; the Function App's `RedisConnection` / `CosmosConnection` app settings are
-  `@Microsoft.KeyVault(SecretUri=...)` references resolved by the host via the app's
-  managed identity. Application code is unchanged — it still reads the same setting names.
-- **Acknowledged residual exposure.** Secret values transit Terraform state and may appear
+- **Key Vault references.** The Function App's `RedisConnection` / `CosmosConnection` app
+  settings are `@Microsoft.KeyVault(SecretUri=...)` references resolved by the host via the
+  app's managed identity. Application code is unchanged — it still reads the same setting
+  names.
+- **Updated posture (prod-hardening Phase 9).** Prod no longer ships any storage or store
+  **access key** through Terraform state. The Function App authenticates to its backing
+  storage by managed identity (no account key); Cosmos has key auth disabled
+  (`local_authentication_enabled = false`) and is reached by an AAD data-plane role; Redis
+  accepts Microsoft Entra auth with a data-access-policy assignment for the app identity.
+  Consequently the `RedisConnection` / `CosmosConnection` Key Vault secrets hold only the
+  **keyless endpoint** (host/URI), not a keyed connection string. Key Vault itself is now
+  purge-protected with deny-by-default network ACLs (Azure-services bypass only).
+- **Acknowledged residual exposure.** No access keys remain in state for prod. App Insights
+  and any future genuinely-secret values would still transit Terraform state and may appear
   in an uploaded `tfplan` artifact; mitigated by a restricted remote backend, private and
   short-retention artifacts, and git-ignoring all state/plan files.
+- **Follow-up (application).** Consuming the keyless endpoints at runtime requires the app's
+  Cosmos/Redis clients to use `DefaultAzureCredential` / an Entra token instead of a keyed
+  connection string. That client change is out of scope for the IaC PRDs (no application
+  source changes) and is the documented next step before a prod store actually serves
+  traffic.
 
 ### CI/CD auth and pipeline
 - **Auth.** Service principal credential JSON stored as the `AZURE_CREDENTIALS` GitHub

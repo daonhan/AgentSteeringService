@@ -94,8 +94,10 @@ module "keyvault" {
   resource_group_name = azurerm_resource_group.this.name
   location            = azurerm_resource_group.this.location
 
-  redis_connection_string  = var.enable_redis ? module.redis[0].primary_connection_string : ""
-  cosmos_connection_string = var.enable_cosmos ? module.cosmos[0].primary_sql_connection_string : ""
+  # Keyless endpoints only — the stores disable key auth (Phase 9), so no access
+  # key or keyed connection string transits Key Vault or Terraform state.
+  redis_connection_string  = var.enable_redis ? "${module.redis[0].hostname}:${module.redis[0].ssl_port}" : ""
+  cosmos_connection_string = var.enable_cosmos ? module.cosmos[0].endpoint : ""
 
   tags = local.tags
 }
@@ -139,6 +141,32 @@ resource "azurerm_role_assignment" "func_storage_blob_owner" {
   scope                = module.storage.id
   role_definition_name = "Storage Blob Data Owner"
   principal_id         = module.functionapp.principal_id
+}
+
+# --- Passwordless prod data-plane (Phase 9) ---------------------------------
+# The prod stores disable key auth (Cosmos local auth off, Redis Entra auth);
+# these RBAC grants give the Function App identity data-plane access
+# in its place. At the root (not the store modules) to avoid module cycles with
+# functionapp — same placement reasoning as the KV/storage role assignments above.
+resource "azurerm_cosmosdb_sql_role_assignment" "func_cosmos_data" {
+  count = var.enable_cosmos ? 1 : 0
+
+  resource_group_name = azurerm_resource_group.this.name
+  account_name        = local.cosmos_name
+  # Built-in "Cosmos DB Built-in Data Contributor" data-plane role.
+  role_definition_id = "${module.cosmos[0].id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002"
+  principal_id       = module.functionapp.principal_id
+  scope              = module.cosmos[0].id
+}
+
+resource "azurerm_redis_cache_access_policy_assignment" "func_redis_data" {
+  count = var.enable_redis ? 1 : 0
+
+  name               = "func-${local.project}-data-owner"
+  redis_cache_id     = module.redis[0].id
+  access_policy_name = "Data Owner"
+  object_id          = module.functionapp.principal_id
+  object_id_alias    = "func-${local.project}"
 }
 
 # --- Observability (Phase 4) ------------------------------------------------
