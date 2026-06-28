@@ -38,6 +38,18 @@ variable "app_insights_connection_string" {
   sensitive   = true
 }
 
+variable "redis_connection_setting" {
+  type        = string
+  description = "RedisConnection app-setting value (a Key Vault reference in prod). Empty omits the setting → in-memory fallback."
+  default     = ""
+}
+
+variable "cosmos_connection_setting" {
+  type        = string
+  description = "CosmosConnection app-setting value (a Key Vault reference in prod). Empty omits the setting → in-memory fallback."
+  default     = ""
+}
+
 variable "tags" {
   type = map(string)
 }

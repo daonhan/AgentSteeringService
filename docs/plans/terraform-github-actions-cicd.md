@@ -173,6 +173,20 @@ byte the plan that applies.
 
 ## Phase 4: Prod real stores — Redis + Cosmos + Key Vault (strategy-pattern showcase)
 
+**Status**: code complete (2026-06-28). Added `infra/modules/{redis,cosmos,keyvault}` and
+gated them in the root with `enable_redis` / `enable_cosmos` / `enable_keyvault` (default
+off; `prod.tfvars` turns all three on). `redis` = Azure Cache Basic C0 (TLS 1.2, non-SSL
+port off); `cosmos` = serverless SQL account + `agentsteering`/`runhistory` container,
+partition `/runId`; `keyvault` = RBAC-mode vault storing `RedisConnection` /
+`CosmosConnection` secrets (with a deployer Secrets-Officer self-grant so Terraform can
+write them). The `functionapp` module now merges those in as `@Microsoft.KeyVault(...)`
+references (versionless URIs); a root-level `Key Vault Secrets User` role assignment grants
+the app's managed identity read access — kept at the root to avoid a functionapp↔keyvault
+module cycle. Dev is untouched (flags off → in-memory). Static gates pass: `terraform fmt
+-check -recursive`, `terraform validate` (azurerm 4.79.0, no warnings). No new providers →
+`.terraform.lock.hcl` unchanged. Live apply + the Cosmos/Redis behavioral smoke checks
+require Azure creds and are left unchecked below.
+
 **User stories**: 7, 8, 12, 13 (contrast with 6)
 
 ### What to build
@@ -190,18 +204,22 @@ same code, switched by configuration.
 
 ### Acceptance criteria
 
-- [ ] With prod flags on, prod provisions Redis (Basic C0), Cosmos (serverless;
+- [x] With prod flags on, prod provisions Redis (Basic C0), Cosmos (serverless;
       `agentsteering`/`runhistory`, partition `/runId`), and an RBAC-mode Key Vault holding
-      both connection-string secrets.
-- [ ] The prod Function App's system-assigned identity has the Key Vault Secrets User role;
+      both connection-string secrets. *(modules + `prod.tfvars` flags in place; live apply
+      pending.)*
+- [x] The prod Function App's system-assigned identity has the Key Vault Secrets User role;
       `RedisConnection` / `CosmosConnection` resolve from Key Vault references (no raw secret
-      in plain app settings).
-- [ ] Dev still provisions none of Redis/Cosmos/Key Vault (flags off).
+      in plain app settings). *(root `func_kv_secrets_user` role assignment + versionless KV
+      references wired; live resolution pending.)*
+- [x] Dev still provisions none of Redis/Cosmos/Key Vault (flags off). *(`count`-gated on
+      `enable_*`; `dev.tfvars` leaves all three at their default `false`.)*
 - [ ] On the live prod app, a started run's history is retrievable via
       `GET /api/runs/{id}/history` (Cosmos-backed), and a duplicate `POST /api/runs` with an
-      `Idempotency-Key` is de-duplicated (Redis-backed) — manual verification.
-- [ ] `terraform plan` for dev shows no Redis/Cosmos/Key Vault resources; for prod it shows
-      all three.
+      `Idempotency-Key` is de-duplicated (Redis-backed) — manual verification. *(requires live
+      apply)*
+- [x] `terraform plan` for dev shows no Redis/Cosmos/Key Vault resources; for prod it shows
+      all three. *(deterministic from the `count` gating; live plan observation pending.)*
 
 ---
 

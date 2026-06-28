@@ -13,3 +13,23 @@ variable "location" {
   description = "Azure region. Must be Flex-Consumption-capable."
   default     = "eastus"
 }
+
+# Tiered provisioning toggles. Default off (dev → in-memory fallbacks); prod.tfvars
+# turns all three on together to provision the real stores + Key Vault references.
+variable "enable_redis" {
+  type        = bool
+  description = "Provision Azure Cache for Redis and wire RedisConnection."
+  default     = false
+}
+
+variable "enable_cosmos" {
+  type        = bool
+  description = "Provision Cosmos DB and wire CosmosConnection."
+  default     = false
+}
+
+variable "enable_keyvault" {
+  type        = bool
+  description = "Provision Key Vault holding the store secrets, referenced from app settings."
+  default     = false
+}

@@ -26,12 +26,17 @@ resource "azurerm_function_app_flex_consumption" "this" {
 
   site_config {}
 
-  # Only the baseline settings. RedisConnection / CosmosConnection are deliberately
-  # absent so the app runs on its in-memory fallbacks (the strategy-pattern switch).
-  app_settings = {
-    AzureWebJobsStorage                   = var.storage_connection_string
-    APPLICATIONINSIGHTS_CONNECTION_STRING = var.app_insights_connection_string
-  }
+  # Baseline settings are always present. RedisConnection / CosmosConnection are
+  # added only when supplied (prod, as Key Vault references); when empty the app
+  # runs on its in-memory fallbacks (the strategy-pattern switch).
+  app_settings = merge(
+    {
+      AzureWebJobsStorage                   = var.storage_connection_string
+      APPLICATIONINSIGHTS_CONNECTION_STRING = var.app_insights_connection_string
+    },
+    var.redis_connection_setting != "" ? { RedisConnection = var.redis_connection_setting } : {},
+    var.cosmos_connection_setting != "" ? { CosmosConnection = var.cosmos_connection_setting } : {},
+  )
 
   identity {
     type = "SystemAssigned"
