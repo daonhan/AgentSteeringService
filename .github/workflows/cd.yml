@@ -241,3 +241,111 @@ jobs:
         with:
           app-name: ${{ needs.apply-dev.outputs.function_app_name }}
           package: ./publish
+
+  # ---- Prod promotion (Phase 3): plan → [prod approval] → apply saved plan → deploy ----
+  # plan-prod runs ungated so the reviewer can inspect the exact change set before
+  # approving. The approval gate lives on apply-prod / deploy-prod via the `prod`
+  # GitHub Environment (required reviewer = operator), so nothing is provisioned or
+  # deployed to prod until a human approves. apply-prod applies the byte-for-byte
+  # tfplan that plan-prod produced (plan integrity).
+
+  plan-prod:
+    name: Plan prod infrastructure
+    needs: deploy-dev
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+      ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+      ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+      ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform init
+        working-directory: infra
+        run: terraform init -input=false -backend-config=environments/prod.backend.hcl
+
+      - name: Terraform plan
+        working-directory: infra
+        run: terraform plan -input=false -var-file=environments/prod.tfvars -out=tfplan
+
+      - name: Upload tfplan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-prod
+          path: infra/tfplan
+          retention-days: 1
+
+  apply-prod:
+    name: Apply prod infrastructure
+    needs: plan-prod
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: prod
+    outputs:
+      function_app_name: ${{ steps.tf-outputs.outputs.function_app_name }}
+      resource_group_name: ${{ steps.tf-outputs.outputs.resource_group_name }}
+    env:
+      ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+      ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+      ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+      ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Terraform init
+        working-directory: infra
+        run: terraform init -input=false -backend-config=environments/prod.backend.hcl
+
+      - name: Download tfplan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-prod
+          path: infra
+
+      - name: Terraform apply (saved plan)
+        working-directory: infra
+        run: terraform apply -input=false tfplan
+
+      - name: Export Terraform outputs
+        id: tf-outputs
+        working-directory: infra
+        run: |
+          echo "function_app_name=$(terraform output -raw function_app_name)" >> "$GITHUB_OUTPUT"
+          echo "resource_group_name=$(terraform output -raw resource_group_name)" >> "$GITHUB_OUTPUT"
+
+  deploy-prod:
+    name: Deploy prod Function App
+    needs: apply-prod
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish
+        run: dotnet publish AgentSteeringService.csproj -c Release -o ./publish
+
+      - uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy to Azure Functions
+        uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ needs.apply-prod.outputs.function_app_name }}
+          package: ./publish

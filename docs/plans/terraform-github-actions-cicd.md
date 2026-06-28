@@ -125,6 +125,20 @@ comment, and runs a Checkov security scan that comments findings without blockin
 
 ## Phase 3: Prod promotion — gated apply with plan integrity
 
+**Status**: code complete (2026-06-28). `infra/environments/prod.tfvars` + `prod.backend.hcl`
+(key `prod.tfstate`, same bootstrap state account as dev) added; the root module is fully
+parameterized by `var.environment`, so prod provisions the same baseline. `cd.yml` extended
+with three push-to-`main` jobs: `plan-prod` (ungated, `terraform plan -out=tfplan` →
+`tfplan-prod` artifact, 1-day retention) → `apply-prod` (`environment: prod`, downloads the
+artifact and runs `terraform apply tfplan`) → `deploy-prod` (`environment: prod`, publish →
+functions-action). Design note: the approval gate is on `apply-prod`/`deploy-prod`, not on
+`plan-prod`, so the reviewer inspects the exact plan before approving (user stories 22/23);
+nothing is *provisioned or deployed* to prod before approval, though the read-only
+`plan-prod` runs first to produce that plan. Static gates pass locally: `terraform fmt
+-check -recursive`, `terraform validate` (`-backend=false`), `actionlint`. The `prod` GitHub
+Environment + required reviewer is the documented one-time manual setup (Phase 5); live
+apply + approval observation pending.
+
 **User stories**: 22, 23 (extends 17)
 
 ### What to build
@@ -139,16 +153,21 @@ byte the plan that applies.
 
 ### Acceptance criteria
 
-- [ ] `rg-agentsteering-prod` provisions the same baseline as dev (storage, monitoring,
-      Flex Consumption Function App) via `prod.tfvars` + `prod.backend.hcl`.
-- [ ] A GitHub Environment `prod` exists with the operator as a required reviewer; the
-      `apply-prod` / `deploy-prod` jobs are bound to it.
-- [ ] On push to `main`, dev applies and deploys automatically, then the run **pauses** for
-      prod approval before any prod job starts.
-- [ ] `plan-prod` runs `terraform plan -out=tfplan` and uploads `tfplan` as a private,
+- [x] `rg-agentsteering-prod` provisions the same baseline as dev (storage, monitoring,
+      Flex Consumption Function App) via `prod.tfvars` + `prod.backend.hcl`. *(config in place;
+      root module is `var.environment`-parameterized. Live apply pending.)*
+- [x] A GitHub Environment `prod` exists with the operator as a required reviewer; the
+      `apply-prod` / `deploy-prod` jobs are bound to it. *(jobs carry `environment: prod`;
+      creating the Environment + reviewer is the documented manual setup step — Phase 5.)*
+- [x] On push to `main`, dev applies and deploys automatically, then the run **pauses** for
+      prod approval before any prod job starts. *(gate on `apply-prod`/`deploy-prod`; the
+      read-only `plan-prod` runs first so the approver sees the plan. Live run pending.)*
+- [x] `plan-prod` runs `terraform plan -out=tfplan` and uploads `tfplan` as a private,
       short-retention artifact; `apply-prod` downloads it and runs `terraform apply tfplan`.
+      *(`tfplan-prod` artifact, `retention-days: 1`; actionlint-clean.)*
 - [ ] After approval, prod deploys and the live prod app answers `GET /api/runs/{id}`
-      (manual smoke check). Prod still runs on in-memory fallbacks at this phase.
+      (manual smoke check). Prod still runs on in-memory fallbacks at this phase. *(requires
+      live apply)*
 
 ---
 
