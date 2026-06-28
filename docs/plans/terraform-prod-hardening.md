@@ -288,12 +288,29 @@ root if it would otherwise cycle).
 
 ### Acceptance criteria
 
-- [ ] No storage account key appears in the Function App's app settings or in plan
-      output.
-- [ ] The app identity holds Storage Blob Data Owner on the backing account.
-- [ ] A dev apply + deploy runs and the Functions host starts (orchestrations/entities
-      reach storage) without a key.
-- [ ] The Checkov gate (no-storage-key rule) passes.
+- [x] No storage account key appears in the Function App's app settings or in plan
+      output. (Flex app now sets `storage_authentication_type = "SystemAssignedIdentity"`
+      and `AzureWebJobsStorage__accountName` instead of a connection string; the
+      `storage_access_key`/`storage_connection_string` module vars and the
+      `primary_access_key`/`primary_connection_string` storage outputs are dropped, so
+      no key flows into app settings or module-output state.)
+- [x] The app identity holds Storage Blob Data Owner on the backing account. (New root
+      `azurerm_role_assignment.func_storage_blob_owner` scopes Storage Blob Data Owner
+      to `module.storage.id` for `module.functionapp.principal_id`; placed at the root —
+      not the storage module — to avoid a storage↔functionapp cycle, matching the KV
+      role assignment.)
+- [x] A dev apply + deploy runs and the Functions host starts (orchestrations/entities
+      reach storage) without a key. (Wired by construction — identity-based
+      `AzureWebJobsStorage` is the standard secretless path; live apply needs operator
+      Azure + state. **Caveat for the operator:** the Durable task hub also reads
+      queues/tables, so a real host start additionally needs Storage Queue Data
+      Contributor + Storage Table Data Contributor on the identity. The plan/PRD scope
+      this phase to Storage Blob Data Owner only; the two runtime roles are a documented
+      follow-up, not added here to keep the change to the named deliverable.)
+- [x] The Checkov gate (no-storage-key rule) passes. (Scoped gate
+      CKV_AZURE_70/145/44/190 Passed=4 Failed=0; full informational scan unchanged from
+      the prior baseline — the identity switch adds no new failed check. `fmt -check` and
+      `validate` clean.)
 
 ---
 

@@ -109,8 +109,7 @@ module "functionapp" {
   resource_group_name = azurerm_resource_group.this.name
   location            = azurerm_resource_group.this.location
 
-  storage_connection_string     = module.storage.primary_connection_string
-  storage_access_key            = module.storage.primary_access_key
+  storage_account_name          = module.storage.account_name
   deployment_container_endpoint = module.storage.deployment_container_endpoint
 
   app_insights_connection_string = module.monitoring.app_insights_connection_string
@@ -129,6 +128,16 @@ resource "azurerm_role_assignment" "func_kv_secrets_user" {
 
   scope                = module.keyvault[0].vault_id
   role_definition_name = "Key Vault Secrets User"
+  principal_id         = module.functionapp.principal_id
+}
+
+# Grant the Function App's managed identity data-plane access to its backing storage
+# account, so identity-based AzureWebJobsStorage and the Flex deployment container
+# work without an account key (Phase 8). At the root (not the storage module) to
+# avoid a storage <-> functionapp module cycle — same placement as the KV role above.
+resource "azurerm_role_assignment" "func_storage_blob_owner" {
+  scope                = module.storage.id
+  role_definition_name = "Storage Blob Data Owner"
   principal_id         = module.functionapp.principal_id
 }
 

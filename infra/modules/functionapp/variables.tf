@@ -20,16 +20,9 @@ variable "location" {
   type = string
 }
 
-variable "storage_connection_string" {
+variable "storage_account_name" {
   type        = string
-  description = "AzureWebJobsStorage connection string (Durable + runtime backing store)."
-  sensitive   = true
-}
-
-variable "storage_access_key" {
-  type        = string
-  description = "Access key for the Flex Consumption deployment container."
-  sensitive   = true
+  description = "Backing storage account name; identity-based AzureWebJobsStorage + deployment container auth use it (no key)."
 }
 
 variable "deployment_container_endpoint" {
