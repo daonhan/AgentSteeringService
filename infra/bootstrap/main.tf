@@ -47,13 +47,42 @@ resource "azurerm_storage_account" "state" {
 
   blob_properties {
     versioning_enabled = true
+
+    # Soft-delete nets: an accidental delete/overwrite of a state blob (or the
+    # whole container) is recoverable for 30 days.
+    delete_retention_policy {
+      days = 30
+    }
+
+    container_delete_retention_policy {
+      days = 30
+    }
   }
 
   tags = var.tags
+
+  # The state account holds dev + prod state for every other config — losing it
+  # is unrecoverable. Make a stray destroy of this bootstrap config fail at plan.
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "azurerm_storage_container" "tfstate" {
   name                  = "tfstate"
   storage_account_id    = azurerm_storage_account.state.id
   container_access_type = "private"
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+# Portal-side guard: a CanNotDelete lock on the state RG refuses a delete of the
+# resource group (and the account/container inside it) from outside Terraform.
+resource "azurerm_management_lock" "state" {
+  name       = "tfstate-no-delete"
+  scope      = azurerm_resource_group.state.id
+  lock_level = "CanNotDelete"
+  notes      = "Protects the Terraform state store for all environments."
 }

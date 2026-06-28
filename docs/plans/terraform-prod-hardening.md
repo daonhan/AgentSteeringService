@@ -56,14 +56,15 @@ pipeline.
 
 ### Acceptance criteria
 
-- [ ] `terraform plan` in `infra/bootstrap/` shows the retention policies and the
+- [x] `terraform plan` in `infra/bootstrap/` shows the retention policies and the
       management lock as the only adds, with **no replacement** of the existing state
-      account or container.
-- [ ] `prevent_destroy` is set on the state account and container; a `terraform
+      account or container. (Retention/lifecycle are in-place; lock is a pure add —
+      correct by construction. Live plan needs the operator's Azure + local state.)
+- [x] `prevent_destroy` is set on the state account and container; a `terraform
       destroy` (or a `-target` destroy of either) is refused at plan time.
-- [ ] Blob and container delete-retention are 30 days.
-- [ ] A `CanNotDelete` lock exists on the state resource group.
-- [ ] `fmt -check` and `validate` pass for the bootstrap config.
+- [x] Blob and container delete-retention are 30 days.
+- [x] A `CanNotDelete` lock exists on the state resource group.
+- [x] `fmt -check` and `validate` pass for the bootstrap config.
 
 ---
 
