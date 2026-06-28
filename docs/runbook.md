@@ -7,7 +7,7 @@ and [plan](plans/terraform-github-actions-cicd.md) explain *why*; this is the *h
 Two parts:
 
 - **[One-time setup](#one-time-setup)** — the manual steps a person does once (run the
-  bootstrap, wire the backend, create the service principal + secret, create the GitHub
+  bootstrap, wire the backend, register the OIDC federated credentials, create the GitHub
   Environments). These are deliberately not automated (see the PRD's *Out of Scope*).
 - **[Day-to-day flow](#day-to-day-flow)** — how changes reach dev and get promoted to prod.
 
@@ -15,7 +15,7 @@ Two parts:
 infra/bootstrap (local state, your az login)  ──once──►  state storage account
         │ emits state_storage_account_name
         ▼  paste into environments/{dev,prod}.backend.hcl
-cd.yml (CI service principal)  ──push to main──►  apply-dev → deploy-dev
+cd.yml (CI identity via OIDC)  ──push to main──►  apply-dev → deploy-dev
                                                   → plan-prod → [prod approval] → apply-prod → deploy-prod
 ```
 
@@ -26,7 +26,7 @@ cd.yml (CI service principal)  ──push to main──►  apply-dev → deploy
 - An Azure subscription and the **Azure CLI** (`az`), logged in as a user with **Owner**
   (you create a subscription-scoped role assignment for the service principal).
 - **Terraform `>= 1.9`** locally (CI pins `1.9.8`).
-- Admin on the GitHub repository (to add the secret and create Environments).
+- Admin on the GitHub repository (to add the secrets and create Environments).
 
 ---
 
@@ -65,24 +65,53 @@ Both point at the same storage account and container; **the blob `key` is the on
 separating dev and prod state**, so the two environments can never select each other's
 state by accident. Commit the filled-in values.
 
-### 3. Create the CI service principal + `AZURE_CREDENTIALS` secret
+### 3. Create the CI identity + OIDC federated credentials (no client secret)
 
-The pipeline authenticates with one service principal, granted **Owner** on the
-subscription (it must create resource groups and the Key Vault / Cosmos role assignments).
+The pipeline authenticates via **GitHub→Azure OIDC workload-identity federation** — no
+long-lived client secret is stored in GitHub. Create one app registration, grant it
+**Owner** on the subscription (it must create resource groups and the Key Vault / Cosmos
+role assignments), then register federated credentials so GitHub can mint a short-lived
+token per run.
 
 ```bash
-az ad sp create-for-rbac \
-  --name "sp-agentsteering-cicd" \
+# 1. App registration + service principal (no --sdk-auth, no password).
+appId=$(az ad app create --display-name "sp-agentsteering-cicd" --query appId -o tsv)
+az ad sp create --id "$appId"
+
+# 2. Owner on the subscription.
+az role assignment create \
+  --assignee "$appId" \
   --role Owner \
-  --scopes /subscriptions/<your-subscription-id> \
-  --sdk-auth
+  --scope /subscriptions/<your-subscription-id>
 ```
 
-Copy the **entire JSON** output (it has `clientId` / `clientSecret` / `tenantId` /
-`subscriptionId`) into a GitHub repository secret named **`AZURE_CREDENTIALS`**
-(*Settings → Secrets and variables → Actions → New repository secret*). The same secret
-drives both `azure/login` (deploy) and the azurerm provider — `cd.yml` reads
-`fromJson(secrets.AZURE_CREDENTIALS).clientId` into `ARM_CLIENT_ID` and so on.
+Register one federated credential per GitHub OIDC **subject** the pipeline runs under —
+PR jobs, the `main` branch (plan-prod, drift), and each deployment Environment:
+
+```bash
+repo="<owner>/<repo>"   # e.g. daonhan/agent-steering-service
+for sub in \
+  "repo:${repo}:pull_request" \
+  "repo:${repo}:ref:refs/heads/main" \
+  "repo:${repo}:environment:dev" \
+  "repo:${repo}:environment:prod"; do
+  name="gh-$(echo "$sub" | tr ':/' '--')"
+  az ad app federated-credential create --id "$appId" --parameters "{
+    \"name\": \"${name}\",
+    \"issuer\": \"https://token.actions.githubusercontent.com\",
+    \"subject\": \"${sub}\",
+    \"audiences\": [\"api://AzureADTokenExchange\"]
+  }"
+done
+```
+
+Then set **three repository secrets** (*Settings → Secrets and variables → Actions*) —
+plain identifiers, no secret value: **`AZURE_CLIENT_ID`** (the `$appId` above),
+**`AZURE_TENANT_ID`** (`az account show --query tenantId -o tsv`), and
+**`AZURE_SUBSCRIPTION_ID`**. `cd.yml` passes these to `azure/login` (deploy) and to the
+azurerm provider as `ARM_CLIENT_ID` / `ARM_TENANT_ID` / `ARM_SUBSCRIPTION_ID` with
+`ARM_USE_OIDC=true`; the Azure-authenticating jobs each request `id-token: write` so the
+provider can exchange the GitHub token. There is no client secret to rotate.
 
 ### 4. Create the GitHub Environments
 

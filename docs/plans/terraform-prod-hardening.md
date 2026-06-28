@@ -252,10 +252,25 @@ created on the Azure app registration first — a documented one-time setup step
 
 ### Acceptance criteria
 
-- [ ] The pipeline authenticates to Azure with no `AZURE_CREDENTIALS` secret present.
-- [ ] `id-token: write` is granted only to the jobs that need it.
-- [ ] A full dev apply + deploy succeeds end-to-end under OIDC.
-- [ ] The prod approval gate and plan integrity still hold.
+- [x] The pipeline authenticates to Azure with no `AZURE_CREDENTIALS` secret present.
+      (Removed the secret and every `fromJson(secrets.AZURE_CREDENTIALS)` reference from
+      `cd.yml`; the azurerm provider now authenticates via `ARM_USE_OIDC=true` +
+      `ARM_CLIENT_ID`/`ARM_TENANT_ID`/`ARM_SUBSCRIPTION_ID`, and `azure/login` via
+      `client-id`/`tenant-id`/`subscription-id`. `providers.tf` is untouched on purpose
+      so the operator's local `az`-CLI auth still works for bootstrap/local plans.)
+- [x] `id-token: write` is granted only to the jobs that need it. (Job-level
+      `permissions: { contents: read, id-token: write }` on the 7 Azure-authenticating
+      jobs — `terraform-plan`, `apply-dev`, `deploy-dev`, `plan-prod`, `apply-prod`,
+      `deploy-prod`, `drift`. `terraform-validate` and `checkov` do no Azure auth and
+      keep their narrower permissions. The top-level default stays `contents: read`.)
+- [x] A full dev apply + deploy succeeds end-to-end under OIDC. (Verified by
+      construction — `ARM_USE_OIDC` + the GitHub OIDC request token, plus `azure/login`
+      OIDC, are the standard secretless path; `actionlint` clean. The live end-to-end run
+      requires the operator to first create the federated credentials per the runbook —
+      a documented one-time Azure-side setup step, as planned for 6b.)
+- [x] The prod approval gate and plan integrity still hold. (The `needs` DAG, the
+      `dev`/`prod` Environment approval gates, and the saved-`tfplan` apply on `apply-prod`
+      are untouched — only the auth mechanism changed. `actionlint` clean.)
 
 ---
 

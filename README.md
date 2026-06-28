@@ -174,8 +174,9 @@ Cosmos + Key Vault and supplies their connection strings as `@Microsoft.KeyVault
 references — the same code, switched by configuration across two live environments.
 
 > **Standing it up:** see the [CD runbook](docs/runbook.md) — bootstrap the state backend,
-> wire the backend config, create the service principal + `AZURE_CREDENTIALS` secret and
-> the `dev` / `prod` GitHub Environments, then trigger and promote.
+> wire the backend config, register the OIDC federated credentials + `AZURE_CLIENT_ID` /
+> `AZURE_TENANT_ID` / `AZURE_SUBSCRIPTION_ID` secrets and the `dev` / `prod` GitHub
+> Environments, then trigger and promote.
 
 ---
 
