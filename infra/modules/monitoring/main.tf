@@ -1,5 +1,5 @@
 resource "azurerm_log_analytics_workspace" "this" {
-  name                = "log-agentsteering-${var.environment}"
+  name                = "log-${var.project}-${var.environment}"
   resource_group_name = var.resource_group_name
   location            = var.location
   sku                 = "PerGB2018"
@@ -10,7 +10,7 @@ resource "azurerm_log_analytics_workspace" "this" {
 # Workspace-based Application Insights, so the telemetry middleware wired in
 # Program.cs reports in the cloud.
 resource "azurerm_application_insights" "this" {
-  name                = "appi-agentsteering-${var.environment}"
+  name                = "appi-${var.project}-${var.environment}"
   resource_group_name = var.resource_group_name
   location            = var.location
   application_type    = "web"
@@ -22,7 +22,7 @@ resource "azurerm_application_insights" "this" {
 # wiring a real email/webhook is an operator step, not a checked-in placeholder
 # (the cross-project review flagged placeholder alert emails as an anti-pattern).
 resource "azurerm_monitor_action_group" "this" {
-  name                = "ag-agentsteering-${var.environment}"
+  name                = "ag-${var.project}-${var.environment}"
   resource_group_name = var.resource_group_name
   short_name          = "ag-${var.environment}"
   tags                = var.tags

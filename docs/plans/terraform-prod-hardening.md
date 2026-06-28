@@ -173,13 +173,31 @@ churned destructively.
 
 ### Acceptance criteria
 
-- [ ] The `agentsteering` literal exists only in root locals; monitoring and
-      functionapp take it as a variable.
-- [ ] Cosmos, Redis, and Function App names include the random suffix.
-- [ ] `plan` against existing dev state shows **no resource replacement** for already-
+- [x] The `agentsteering` literal exists only in root locals; monitoring and
+      functionapp take it as a variable. (New `local.project` is the single source;
+      `monitoring` takes `project` for the LAW/App Insights/action-group names and
+      `functionapp` for the service-plan name. The lone remaining `agentsteering`
+      literal is the Cosmos `database_name` — intentionally a data-plane name matching
+      the app's `CosmosDatabase` default, not the resource-naming slug, so it stays
+      decoupled from `project`.)
+- [x] Cosmos, Redis, and Function App names include the random suffix. (All three
+      compose `random_string.suffix.result` — reusing the existing suffix resource, no
+      new randoms — joining storage and Key Vault as collision-safe global names; each
+      verified within its Azure length/charset limit.)
+- [x] `plan` against existing dev state shows **no resource replacement** for already-
       deployed resources (handled via `moved`/import), or any unavoidable rename is
-      called out explicitly in the PR.
-- [ ] `fmt -check`, `validate`, and the Checkov gate pass.
+      called out explicitly in the PR. (Parameterization is name-preserving — e.g.
+      `log-${project}-${env}` still renders `log-agentsteering-dev` — so monitoring,
+      service plan, storage and Key Vault are untouched. Cosmos/Redis are `count`-gated
+      off in dev, so their new suffix causes no dev churn. The **one unavoidable rename
+      is the Function App**: its global `name` is ForceNew, so adding the suffix forces
+      a one-time replacement. `moved`/import cannot absorb a `name`-attribute change —
+      only state-address moves, of which there are none — so this is called out rather
+      than masked. Live plan needs operator Azure + state.)
+- [x] `fmt -check`, `validate`, and the Checkov gate pass. (Scoped Checkov
+      CKV_AZURE_70/145/44/190 Passed=4 Failed=0 — renames don't touch the
+      transport/public-access rules; dev and prod var sets both clear variable
+      validation before the provider auth boundary.)
 
 ---
 

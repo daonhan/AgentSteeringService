@@ -1,14 +1,23 @@
 locals {
-  resource_group_name  = "rg-agentsteering-${var.environment}"
+  # Single source of truth for the project slug used in every resource name and
+  # the project tag. Threaded into the monitoring and functionapp modules as a
+  # variable so those modules carry no hardcoded service name.
+  project = "agentsteering"
+
+  resource_group_name = "rg-${local.project}-${var.environment}"
+  # Storage account (max 24 chars, no hyphens) keeps its own truncated slug.
   storage_account_name = "stagentsteer${var.environment}${random_string.suffix.result}"
-  function_app_name    = "func-agentsteering-${var.environment}"
-  redis_name           = "redis-agentsteering-${var.environment}"
-  cosmos_name          = "cosmos-agentsteering-${var.environment}"
-  key_vault_name       = "kv-agentsteer-${var.environment}-${try(random_string.kv_suffix[0].result, "")}"
+  # The three remaining globally-unique names now carry random_string.suffix so a
+  # fork/share cannot collide on their DNS labels (matching storage and Key Vault).
+  function_app_name = "func-${local.project}-${var.environment}-${random_string.suffix.result}"
+  redis_name        = "redis-${local.project}-${var.environment}-${random_string.suffix.result}"
+  cosmos_name       = "cosmos-${local.project}-${var.environment}-${random_string.suffix.result}"
+  # Key Vault (max 24 chars) keeps its own truncated slug and dedicated suffix.
+  key_vault_name = "kv-agentsteer-${var.environment}-${try(random_string.kv_suffix[0].result, "")}"
 
   tags = {
     environment = var.environment
-    project     = "agentsteering"
+    project     = local.project
     managedBy   = "terraform"
   }
 }
@@ -46,6 +55,7 @@ module "storage" {
 module "monitoring" {
   source = "./modules/monitoring"
 
+  project             = local.project
   environment         = var.environment
   resource_group_name = azurerm_resource_group.this.name
   location            = azurerm_resource_group.this.location
@@ -94,6 +104,7 @@ module "functionapp" {
   source = "./modules/functionapp"
 
   name                = local.function_app_name
+  project             = local.project
   environment         = var.environment
   resource_group_name = azurerm_resource_group.this.name
   location            = azurerm_resource_group.this.location
@@ -142,7 +153,7 @@ module "functionapp_diagnostics" {
 
 # Always-on: the Function App is returning server (5xx) errors.
 resource "azurerm_monitor_metric_alert" "function_errors" {
-  name                = "alert-func-5xx-agentsteering-${var.environment}"
+  name                = "alert-func-5xx-${local.project}-${var.environment}"
   resource_group_name = azurerm_resource_group.this.name
   scopes              = [module.functionapp.id]
   description         = "Function App is returning server (5xx) errors."
@@ -169,7 +180,7 @@ resource "azurerm_monitor_metric_alert" "function_errors" {
 resource "azurerm_monitor_metric_alert" "cosmos_throttled" {
   count = var.enable_cosmos ? 1 : 0
 
-  name                = "alert-cosmos-429-agentsteering-${var.environment}"
+  name                = "alert-cosmos-429-${local.project}-${var.environment}"
   resource_group_name = azurerm_resource_group.this.name
   scopes              = [module.cosmos[0].id]
   description         = "Cosmos DB is throttling requests (HTTP 429)."
@@ -201,7 +212,7 @@ resource "azurerm_monitor_metric_alert" "cosmos_throttled" {
 resource "azurerm_monitor_metric_alert" "redis_evictions" {
   count = var.enable_redis ? 1 : 0
 
-  name                = "alert-redis-evictions-agentsteering-${var.environment}"
+  name                = "alert-redis-evictions-${local.project}-${var.environment}"
   resource_group_name = azurerm_resource_group.this.name
   scopes              = [module.redis[0].id]
   description         = "Redis is evicting keys under memory pressure."

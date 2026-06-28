@@ -3,6 +3,11 @@ variable "name" {
   description = "Function App name."
 }
 
+variable "project" {
+  type        = string
+  description = "Project slug used in resource names; passed from root locals."
+}
+
 variable "environment" {
   type = string
 }

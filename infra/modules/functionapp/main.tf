@@ -1,5 +1,5 @@
 resource "azurerm_service_plan" "this" {
-  name                = "asp-agentsteering-${var.environment}"
+  name                = "asp-${var.project}-${var.environment}"
   resource_group_name = var.resource_group_name
   location            = var.location
   os_type             = "Linux"
