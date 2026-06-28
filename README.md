@@ -1,6 +1,7 @@
 # Agent Steering Service
 
 [![CI](https://github.com/daonhan/AgentSteeringService/actions/workflows/ci.yml/badge.svg)](https://github.com/daonhan/AgentSteeringService/actions/workflows/ci.yml)
+[![CD](https://github.com/daonhan/AgentSteeringService/actions/workflows/cd.yml/badge.svg)](https://github.com/daonhan/AgentSteeringService/actions/workflows/cd.yml)
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![Azure Functions](https://img.shields.io/badge/Azure%20Functions-v4%20isolated-0062AD?logo=azurefunctions&logoColor=white)](https://learn.microsoft.com/azure/azure-functions/dotnet-isolated-process-guide)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -155,6 +156,29 @@ query (cheap, predictable RU) instead of a fan-out cross-partition scan.
 
 ---
 
+## Deploy: Terraform + GitHub Actions
+
+Infrastructure is described in Terraform (`infra/`) and delivered by a single GitHub
+Actions workflow (`.github/workflows/cd.yml`). `ci.yml` (build / format / test) is
+unchanged and keeps running alongside.
+
+- **On a PR touching `infra/`:** `terraform fmt -check` + `validate` (hard gates), a dev
+  `terraform plan` posted as a PR comment, and a soft Checkov scan.
+- **On merge to `main`:** `apply-dev` → `deploy-dev` → `plan-prod` → **[`prod` Environment
+  approval]** → `apply-prod` (applies the exact saved plan) → `deploy-prod`.
+
+The split mirrors the [stores](#stores-redis--cosmos) above: **dev** provisions only
+Function App + Storage + Application Insights and leaves `RedisConnection` /
+`CosmosConnection` unset (in-memory fallbacks), while **prod** also provisions Redis +
+Cosmos + Key Vault and supplies their connection strings as `@Microsoft.KeyVault(...)`
+references — the same code, switched by configuration across two live environments.
+
+> **Standing it up:** see the [CD runbook](docs/runbook.md) — bootstrap the state backend,
+> wire the backend config, create the service principal + `AZURE_CREDENTIALS` secret and
+> the `dev` / `prod` GitHub Environments, then trigger and promote.
+
+---
+
 ## Production hardening
 
 - **Auth:** front with **APIM** (`validate-jwt`) + **Entra ID**. Service-to-service = client-credentials
@@ -201,7 +225,9 @@ AgentSteeringService/
 │  └─ CosmosRunHistoryStore.cs     # event-sourced, partition /runId
 ├─ tests/AgentSteeringService.Tests # xUnit — distributed-lock semantics
 ├─ demo.http / demo.ps1            # drive the steering flow
+├─ infra/                          # Terraform: bootstrap + root module + modules/ + env files
 ├─ .github/workflows/ci.yml        # restore + build + format check + test
+├─ .github/workflows/cd.yml        # Terraform plan/apply + deploy (PR gates → dev → gated prod)
 └─ README.md
 ```
 

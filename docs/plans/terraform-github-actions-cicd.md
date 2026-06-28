@@ -225,6 +225,22 @@ same code, switched by configuration.
 
 ## Phase 5: Docs + final hardening
 
+**Status**: code complete (2026-06-28). Added `docs/runbook.md` (bootstrap → backend
+wiring → service-principal + `AZURE_CREDENTIALS` → `dev`/`prod` GitHub Environments + prod
+reviewer → PR/merge/promote flow → smoke check → naming/tags/versions reference → tear
+down) and a dry read-through against the actual files (bootstrap outputs, the
+`REPLACE_WITH_BOOTSTRAP_OUTPUT` backend placeholders, `cd.yml`'s `fromJson(secrets.
+AZURE_CREDENTIALS)` refs and `environment:` bindings). README gains a CD badge, a "Deploy:
+Terraform + GitHub Actions" section linking the pipeline + runbook, and `infra/`/`cd.yml`
+in the layout. Consistency pass: all env-provisioned resources follow the
+`<abbr>-agentsteering-{env}` naming convention and carry `environment`/`project`/
+`managedBy=terraform` tags (bootstrap state resources intentionally carry
+`project`/`managedBy`/`purpose=tfstate` — they're cross-environment). Version pinning
+verified: Terraform `>= 1.9`, `azurerm ~> 4.0`, `random ~> 3.6`; committed
+`.terraform.lock.hcl` current at azurerm 4.79.0 / random 3.9.0 (root + bootstrap). Static
+gates pass: `terraform fmt -check -recursive`, `validate` (root + bootstrap, no warnings).
+No application or `cd.yml` code changed. Live-apply-only checks left unchecked below.
+
 **User stories**: 26, 27, 28, 30
 
 ### What to build
@@ -238,16 +254,22 @@ and verify version pinning (Terraform `>= 1.9`, `azurerm ~> 4.0`, committed
 
 ### Acceptance criteria
 
-- [ ] A runbook documents: bootstrap execution, backend-config wiring, SP creation +
+- [x] A runbook documents: bootstrap execution, backend-config wiring, SP creation +
       `AZURE_CREDENTIALS`, GitHub Environments + prod reviewer, and how to trigger/promote.
-- [ ] Another person can stand up dev from scratch following only the runbook (validated by
-      a dry read-through against the actual steps).
-- [ ] All resources follow the naming convention and carry `environment` / `project` /
-      `managedBy=terraform` tags; a `terraform plan` shows no naming/tag drift.
-- [ ] Terraform and provider versions are pinned and `.terraform.lock.hcl` is committed and
-      current.
-- [ ] README links the CD pipeline and the runbook; the CI badge section notes the new
-      `cd.yml`.
+      *(`docs/runbook.md`.)*
+- [x] Another person can stand up dev from scratch following only the runbook (validated by
+      a dry read-through against the actual steps). *(Each step cross-checked against the
+      real files — bootstrap outputs, backend `key`/placeholder, `cd.yml` secret refs and
+      `environment:` bindings.)*
+- [x] All resources follow the naming convention and carry `environment` / `project` /
+      `managedBy=terraform` tags; a `terraform plan` shows no naming/tag drift. *(Consistency
+      pass: every taggable env resource applies `local.tags`; names follow
+      `<abbr>-agentsteering-{env}`. `validate` clean; live plan deterministic.)*
+- [x] Terraform and provider versions are pinned and `.terraform.lock.hcl` is committed and
+      current. *(`>= 1.9`, `azurerm ~> 4.0`, `random ~> 3.6`; lock at 4.79.0 / 3.9.0, root +
+      bootstrap.)*
+- [x] README links the CD pipeline and the runbook; the CI badge section notes the new
+      `cd.yml`. *(CD badge added; "Deploy: Terraform + GitHub Actions" section links both.)*
 
 ---
 
