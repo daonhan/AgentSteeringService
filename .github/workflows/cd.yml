@@ -15,7 +15,7 @@ on:
   schedule:
     # Daily drift detection (Phase 6): plan-only, never applies. See the `drift` job.
     - cron: "0 6 * * *"
-  workflow_dispatch:
+  workflow_dispatch: # manual trigger for testing / emergency apply
 
 permissions:
   contents: read
